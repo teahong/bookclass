@@ -299,7 +299,7 @@ export async function generateBookLetter(userName: string, bookTitle: string, re
 - 독서 감상문: "${reviewContent}"
 
 # Output Format (반드시 이 형식을 유지할 것)
-"안녕? [독자이름]아. 난 [책제목]이야. [감상문에 대한 공감 및 책의 소감]. [독자의 수고에 대한 칭찬]. [응원의 메시지]. 나도 너를 잊지 못할 거야."
+"안녕? [독자이름]아. 난 [책제목]이야. [감상문에 대한 공감 및 책의 소감]. [독자의 수고에 대한 칭찬]. [응원의 메시지]."
         `;
 
         const result = await model.generateContent(prompt);
