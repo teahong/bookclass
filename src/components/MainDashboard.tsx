@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, BookOpen, Star, UserPlus, LogOut, Trash2, X, ExternalLink, Pencil, Lock, Gift, Mail, Glasses, Sun, Rocket, Sprout, User, Settings, Check, Heart, Smile, Cat, Dog, Bird, Fish, TreePine, Flower2, Leaf, Flame, Sparkles, Crown, Shield, GraduationCap, Ruler, Calculator, Music, Camera, Gamepad2, Dumbbell, Palette, Lightbulb } from 'lucide-react';
+import { Plus, BookOpen, Star, UserPlus, LogOut, Trash2, X, ExternalLink, Pencil, Lock, Gift, Mail, Glasses, Sun, Rocket, Sprout, User, Settings, Check, Heart, Smile, Cat, Dog, Bird, Fish, TreePine, Flower2, Leaf, Flame, Sparkles, Crown, Shield, GraduationCap, Ruler, Calculator, Music, Camera, Gamepad2, Dumbbell, Palette, Lightbulb, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import KnowledgeGraph from './KnowledgeGraph';
 import { extractKeywords, generateBookLetter } from '../lib/gemini';
 import { searchAladinBooks } from '../lib/aladin';
@@ -14,6 +14,48 @@ interface MainDashboardProps {
     onLogout: () => void;
     onShowRecommended: () => void;
 }
+
+const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+const formatDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const buildCalendarDays = (baseDate: Date) => {
+    const year = baseDate.getFullYear();
+    const month = baseDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startDay = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const calendarDays: Array<{ date: Date; isCurrentMonth: boolean }> = [];
+
+    for (let i = startDay - 1; i >= 0; i -= 1) {
+        calendarDays.push({
+            date: new Date(year, month, -i),
+            isCurrentMonth: false
+        });
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        calendarDays.push({
+            date: new Date(year, month, day),
+            isCurrentMonth: true
+        });
+    }
+
+    while (calendarDays.length < 42) {
+        const nextDay = calendarDays.length - (startDay + daysInMonth) + 1;
+        calendarDays.push({
+            date: new Date(year, month + 1, nextDay),
+            isCurrentMonth: false
+        });
+    }
+
+    return calendarDays;
+};
 
 /**
  * 메인 대시보드 컴포넌트
@@ -31,6 +73,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
     });
     const [isEditing, setIsEditing] = useState(false);     // 수정 모드 활성화 여부
     const [isAutoFilling, setIsAutoFilling] = useState(false); // AI 로딩 상태
+    const [isSubmitting, setIsSubmitting] = useState(false); // 저장 처리 상태
     const [aiError, setAiError] = useState<string | null>(null); // AI 에러 메시지
     const [users, setUsers] = useState<any[]>([]);          // 추천 대상 유저 목록
 
@@ -45,6 +88,11 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
     const [avatarIcon, setAvatarIcon] = useState<AvatarIconKey>('user');
     const [avatarColor, setAvatarColor] = useState('#64B5F6');
     const [savingAvatar, setSavingAvatar] = useState(false);
+    const [calendarMonth, setCalendarMonth] = useState(() => {
+        const today = new Date();
+        return new Date(today.getFullYear(), today.getMonth(), 1);
+    });
+    const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
 
     // 책의 편지 관련 상태
     const [bookLetter, setBookLetter] = useState<string | null>(null);
@@ -219,43 +267,50 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
      */
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
         const wordCount = newBook.review_content.trim().length;
 
-        // 감상문 내용이 충분히 길면 AI 키워드 추출 시도
-        let keywords: string[] = [];
-        if (newBook.review_content.length > 20) {
-            keywords = await extractKeywords(newBook.review_content);
-        }
+        try {
+            // 감상문 내용이 충분히 길면 AI 키워드 추출 시도
+            let keywords: string[] = [];
+            if (newBook.review_content.length > 20) {
+                keywords = await extractKeywords(newBook.review_content);
+            }
 
-        const bookData = {
-            title: newBook.title,
-            author: newBook.author,
-            publisher: newBook.publisher,
-            cover_url: newBook.cover_url,
-            rating: newBook.rating,
-            review_content: newBook.review_content,
-            review_word_count: wordCount,
-            recommend_to: newBook.recommend_to,
-            read_date: newBook.read_date,
-            link: newBook.link,
-            user_id: userName,
-            keywords: keywords
-        };
+            const bookData = {
+                title: newBook.title,
+                author: newBook.author,
+                publisher: newBook.publisher,
+                cover_url: newBook.cover_url,
+                rating: newBook.rating,
+                review_content: newBook.review_content,
+                review_word_count: wordCount,
+                recommend_to: newBook.recommend_to,
+                read_date: newBook.read_date,
+                link: newBook.link,
+                user_id: userName,
+                keywords: keywords
+            };
 
-        const { error } = isEditing && newBook.id
-            ? await supabase.from('books').update(bookData).eq('id', newBook.id)
-            : await supabase.from('books').insert(bookData);
+            const { error } = isEditing && newBook.id
+                ? await supabase.from('books').update(bookData).eq('id', newBook.id)
+                : await supabase.from('books').insert(bookData);
 
-        if (!error) {
-            setShowAddCard(false);
-            setIsEditing(false);
-            setNewBook({
-                id: '',
-                title: '', author: '', publisher: '', cover_url: '',
-                rating: 5, review_content: '', recommend_to: '', link: '',
-                read_date: new Date().toISOString().split('T')[0]
-            });
-            fetchMyBooks();
+            if (!error) {
+                setShowAddCard(false);
+                setIsEditing(false);
+                setNewBook({
+                    id: '',
+                    title: '', author: '', publisher: '', cover_url: '',
+                    rating: 5, review_content: '', recommend_to: '', link: '',
+                    read_date: new Date().toISOString().split('T')[0]
+                });
+                fetchMyBooks();
+            }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -319,6 +374,23 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
         }
     };
 
+    const readDateMap = books.reduce((acc, book) => {
+        if (!book.read_date) return acc;
+        const key = book.read_date;
+        acc[key] = [...(acc[key] || []), book];
+        return acc;
+    }, {} as Record<string, any[]>);
+
+    const calendarDays = buildCalendarDays(calendarMonth);
+    const currentMonthLabel = `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월`;
+    const monthlyReadCount = books.filter((book) => {
+        if (!book.read_date) return false;
+        const readDate = new Date(book.read_date);
+        return readDate.getFullYear() === calendarMonth.getFullYear() && readDate.getMonth() === calendarMonth.getMonth();
+    }).length;
+    const todayKey = formatDateKey(new Date());
+    const selectedDateBooks = selectedCalendarDate ? (readDateMap[selectedCalendarDate] || []) : [];
+
     return (
         <div className="dashboard-container">
             {/* 상단 헤더 섹션 */}
@@ -365,6 +437,7 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
                     setBook={setNewBook}
                     users={users}
                     isAutoFilling={isAutoFilling}
+                    isSubmitting={isSubmitting}
                     aiError={aiError}
                     onCancel={() => setShowAddCard(false)}
                     onSubmit={handleSubmit}
@@ -372,6 +445,111 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
                     onSearchCover={handleSearchCover}
                 />
             )}
+
+            <section className="dashboard-section">
+                <div className="glass-card reading-calendar-card">
+                    <div className="reading-calendar-header">
+                        <div>
+                            <div className="reading-calendar-title-row">
+                                <CalendarDays size={20} />
+                                <h3 className="reading-calendar-title">독서 누가 달력</h3>
+                            </div>
+                            <p className="reading-calendar-description">
+                                책을 읽은 날짜를 한눈에 보고 월별 독서 흐름을 확인해보세요.
+                            </p>
+                        </div>
+                        <div className="reading-calendar-summary">
+                            <strong>{monthlyReadCount}권</strong>
+                            <span>{currentMonthLabel}</span>
+                        </div>
+                    </div>
+
+                    <div className="reading-calendar-toolbar">
+                        <button
+                            type="button"
+                            className="reading-calendar-nav"
+                            onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                            aria-label="이전 달"
+                        >
+                            <ChevronLeft size={18} />
+                        </button>
+                        <div className="reading-calendar-month">{currentMonthLabel}</div>
+                        <button
+                            type="button"
+                            className="reading-calendar-nav"
+                            onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                            aria-label="다음 달"
+                        >
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
+
+                    <div className="reading-calendar-grid">
+                        {WEEKDAY_LABELS.map((label) => (
+                            <div key={label} className="reading-calendar-weekday">{label}</div>
+                        ))}
+
+                        {calendarDays.map(({ date, isCurrentMonth }) => {
+                            const dateKey = formatDateKey(date);
+                            const dayBooks = readDateMap[dateKey] || [];
+                            const isToday = dateKey === todayKey;
+
+                            return (
+                                <div
+                                    key={dateKey}
+                                    className={`reading-calendar-cell${isCurrentMonth ? '' : ' muted'}${isToday ? ' today' : ''}${dayBooks.length ? ' has-book' : ''}${selectedCalendarDate === dateKey ? ' selected' : ''}`}
+                                    onClick={() => {
+                                        if (!dayBooks.length) return;
+                                        setSelectedCalendarDate((prev) => prev === dateKey ? null : dateKey);
+                                    }}
+                                >
+                                    <span className="reading-calendar-date">{date.getDate()}</span>
+                                    {dayBooks.length > 0 && (
+                                        <div
+                                            className="reading-calendar-badge"
+                                            title={dayBooks.map((book: any) => book.title).join(', ')}
+                                        >
+                                            <BookOpen size={14} />
+                                            <span>{dayBooks.length}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {selectedCalendarDate && selectedDateBooks.length > 0 && (
+                        <div className="reading-calendar-detail">
+                            <div className="reading-calendar-detail-head">
+                                <strong>{selectedCalendarDate}</strong>
+                                <span>{selectedDateBooks.length}권 기록됨</span>
+                            </div>
+                            <div className="reading-calendar-detail-list">
+                                {selectedDateBooks.map((book: any) => (
+                                    <button
+                                        key={book.id}
+                                        type="button"
+                                        className="reading-calendar-detail-item"
+                                        onClick={() => handleBookClick(book)}
+                                    >
+                                        <div className="reading-calendar-detail-icon">
+                                            {book.cover_url ? (
+                                                <img src={book.cover_url} alt={book.title} />
+                                            ) : (
+                                                <BookOpen size={18} />
+                                            )}
+                                        </div>
+                                        <div className="reading-calendar-detail-content">
+                                            <strong>{book.title}</strong>
+                                            <span>{book.author || '작가 정보 없음'}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </section>
 
 
             <div className="dashboard-section">

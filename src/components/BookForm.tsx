@@ -7,6 +7,7 @@ interface BookFormProps {
     setBook: (book: any) => void;
     users: any[];
     isAutoFilling: boolean;
+    isSubmitting: boolean;
     aiError: string | null;
     onCancel: () => void;
     onSubmit: (e: React.FormEvent) => void;
@@ -24,6 +25,7 @@ const BookForm: React.FC<BookFormProps> = ({
     setBook,
     users,
     isAutoFilling,
+    isSubmitting,
     aiError,
     onCancel,
     onSubmit,
@@ -55,7 +57,7 @@ const BookForm: React.FC<BookFormProps> = ({
                             type="button"
                             className="btn btn-primary"
                             onClick={onAutoFill}
-                            disabled={isAutoFilling || !book.link}
+                            disabled={isAutoFilling || isSubmitting || !book.link}
                         >
                             {isAutoFilling ? '분석 중...' : 'AI로 정보 추출'}
                         </button>
@@ -89,7 +91,7 @@ const BookForm: React.FC<BookFormProps> = ({
                                     required
                                     style={{ flex: 1 }}
                                 />
-                                <button type="button" className="btn btn-secondary" onClick={onSearchCover} disabled={isAutoFilling || !book.title}>
+                                <button type="button" className="btn btn-secondary" onClick={onSearchCover} disabled={isAutoFilling || isSubmitting || !book.title}>
                                     검색
                                 </button>
                             </div>
@@ -232,14 +234,16 @@ const BookForm: React.FC<BookFormProps> = ({
                         type="button"
                         className="btn form-cancel-btn"
                         onClick={onCancel}
+                        disabled={isSubmitting}
                     >
                         취소하기
                     </button>
                     <button
                         type="submit"
                         className="btn btn-primary form-submit-btn"
+                        disabled={isSubmitting}
                     >
-                        {isEditing ? '수정 내용 저장' : '독서 기록 저장하기'}
+                        {isSubmitting ? '처리 중...' : isEditing ? '수정 내용 저장' : '독서 기록 저장하기'}
                     </button>
                 </div>
             </form>
