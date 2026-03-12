@@ -40,9 +40,14 @@ const StandaloneReportPage: React.FC<StandaloneReportPageProps> = ({ userName, o
                 .from('ai_analysis')
                 .select('*')
                 .eq('user_id', userData.id)
-                .single();
+                .maybeSingle();
 
-            if (reportError || !reportData) {
+            if (reportError) {
+                setError("리포트를 불러오는 중 오류가 발생했습니다.");
+                return;
+            }
+
+            if (!reportData) {
                 setError("아직 생성된 리포트가 없습니다.");
                 return;
             }

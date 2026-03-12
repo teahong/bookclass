@@ -1,11 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { ArrowLeft, BookOpen, Lock, Activity, Sparkles, TrendingUp, BarChart2, ExternalLink, Share2, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Lock, Activity, Sparkles, TrendingUp, BarChart2, ExternalLink, Share2, Trash2, CalendarDays, ChevronLeft, ChevronRight, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { analyzeReadingPatterns } from '../lib/gemini';
 
 interface AdminPageProps {
     onBack: () => void;
 }
+
+const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+const formatDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const buildCalendarDays = (baseDate: Date) => {
+    const year = baseDate.getFullYear();
+    const month = baseDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startDay = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const calendarDays: Array<{ date: Date; isCurrentMonth: boolean }> = [];
+
+    for (let i = startDay - 1; i >= 0; i -= 1) {
+        calendarDays.push({
+            date: new Date(year, month, -i),
+            isCurrentMonth: false
+        });
+    }
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        calendarDays.push({
+            date: new Date(year, month, day),
+            isCurrentMonth: true
+        });
+    }
+
+    while (calendarDays.length < 42) {
+        const nextDay = calendarDays.length - (startDay + daysInMonth) + 1;
+        calendarDays.push({
+            date: new Date(year, month + 1, nextDay),
+            isCurrentMonth: false
+        });
+    }
+
+    return calendarDays;
+};
 
 /**
  * 관리자 페이지 컴포넌트
@@ -31,6 +73,12 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     const [bulkError, setBulkError] = useState('');
     const [bulkSuccess, setBulkSuccess] = useState('');
     const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+    const [calendarMonth, setCalendarMonth] = useState(() => {
+        const today = new Date();
+        return new Date(today.getFullYear(), today.getMonth(), 1);
+    });
+    const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+    const [isStudentManagerOpen, setIsStudentManagerOpen] = useState(false);
 
     // 컴포넌트 마운트 시 데이터 fetch
     useEffect(() => {
@@ -74,9 +122,15 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
             .from('ai_analysis')
             .select('*')
             .eq('user_id', targetUser.id)
-            .single();
+            .maybeSingle();
 
-        if (data && !error) {
+        if (error) {
+            console.error('AI 분석 결과 조회 실패:', error);
+            setAnalysisResult(null);
+            return;
+        }
+
+        if (data) {
             setAnalysisResult({
                 level: data.level,
                 interest: data.interest,
@@ -107,6 +161,27 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
 
     // 독서량 1위 유저 (독서왕)
     const readingKing = booksByUser.length > 0 ? booksByUser[0] : null;
+    const userNameById = users.reduce((acc, user) => {
+        acc[user.id] = user.name;
+        return acc;
+    }, {} as Record<string, string>);
+    const booksByDate = books.reduce((acc, book) => {
+        if (!book.read_date) return acc;
+        const dateKey = book.read_date;
+        const displayName = userNameById[book.user_id] || book.user_id || '이름 없음';
+        acc[dateKey] = [...(acc[dateKey] || []), { ...book, displayName }];
+        return acc;
+    }, {} as Record<string, any[]>);
+    const calendarDays = buildCalendarDays(calendarMonth);
+    const currentMonthLabel = `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월`;
+    const monthlyBooks = books.filter((book) => {
+        if (!book.read_date) return false;
+        const readDate = new Date(book.read_date);
+        return readDate.getFullYear() === calendarMonth.getFullYear() && readDate.getMonth() === calendarMonth.getMonth();
+    });
+    const monthlyStudents = new Set(monthlyBooks.map((book) => userNameById[book.user_id] || book.user_id).filter(Boolean)).size;
+    const todayKey = formatDateKey(new Date());
+    const selectedDateBooks = selectedCalendarDate ? (booksByDate[selectedCalendarDate] || []) : [];
 
     /**
      * 관리자 페이지에서 유저의 연령 정보를 직접 수정합니다.
@@ -404,119 +479,243 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
 
-                    {/* 1. 통계 요약 섹션 */}
                     <section>
-                        <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            👩‍🏫 학생 관리
-                        </h2>
-                        <div className="glass-card" style={{ padding: '20px', display: 'grid', gap: '20px' }}>
-                            <div>
-                                <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>개별 추가</h3>
-                                <form onSubmit={handleAddStudent} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
-                                    <input
-                                        className="input-field"
-                                        placeholder="학생 이름"
-                                        value={newStudentName}
-                                        onChange={(e) => setNewStudentName(e.target.value)}
-                                    />
-                                    <input
-                                        className="input-field"
-                                        placeholder="나이(선택)"
-                                        type="number"
-                                        min={1}
-                                        max={120}
-                                        value={newStudentAge}
-                                        onChange={(e) => setNewStudentAge(e.target.value)}
-                                    />
-                                    <button className="btn btn-primary" type="submit" disabled={addingStudent}>
-                                        {addingStudent ? '추가 중...' : '학생 추가'}
-                                    </button>
-                                </form>
-                                {studentError && <p style={{ color: '#dc2626', marginTop: '10px', fontSize: '0.9rem' }}>{studentError}</p>}
-                            </div>
-
-                            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                                <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>엑셀 붙여넣기 일괄 추가</h3>
-                                <form onSubmit={handleBulkAddStudents} style={{ display: 'grid', gap: '10px' }}>
-                                    <textarea
-                                        className="input-field"
-                                        rows={6}
-                                        placeholder={'예시 1) 이름만 한 줄씩\n홍길동\n김영희\n\n예시 2) 이름 + 나이(엑셀 2열 복사)\n홍길동\t10\n김영희\t11'}
-                                        value={bulkStudentInput}
-                                        onChange={(e) => setBulkStudentInput(e.target.value)}
-                                        style={{ resize: 'vertical' }}
-                                    />
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-                                        <input
-                                            className="input-field"
-                                            placeholder="일괄 나이(선택, 입력 시 모두 적용)"
-                                            type="number"
-                                            min={1}
-                                            max={120}
-                                            value={bulkDefaultAge}
-                                            onChange={(e) => setBulkDefaultAge(e.target.value)}
-                                        />
-                                        <button className="btn btn-primary" type="submit" disabled={addingBulkStudents}>
-                                            {addingBulkStudents ? '일괄 추가 중...' : '일괄 추가'}
-                                        </button>
+                        <div className="glass-card reading-calendar-card admin-calendar-card">
+                            <div className="reading-calendar-header">
+                                <div>
+                                    <div className="reading-calendar-title-row">
+                                        <CalendarDays size={18} />
+                                        <h2 className="reading-calendar-title">독서 누가 달력</h2>
                                     </div>
-                                </form>
-                                {bulkError && <p style={{ color: '#dc2626', marginTop: '10px', fontSize: '0.9rem' }}>{bulkError}</p>}
-                                {bulkSuccess && <p style={{ color: '#15803d', marginTop: '10px', fontSize: '0.9rem' }}>{bulkSuccess}</p>}
+                                    <p className="reading-calendar-description">
+                                        날짜별로 누가 독서록을 남겼는지 교실 전체 흐름을 확인하세요.
+                                    </p>
+                                </div>
+                                <div className="reading-calendar-summary">
+                                    <strong>{monthlyBooks.length}건</strong>
+                                    <span>{monthlyStudents}명 참여</span>
+                                </div>
                             </div>
 
-                            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                                <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>학생 삭제</h3>
-                                {users.length === 0 ? (
-                                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>등록된 학생이 없습니다.</p>
-                                ) : (
-                                    <div style={{ display: 'grid', gap: '8px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
-                                        {users.map((u) => (
-                                            <div
-                                                key={u.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    gap: '10px',
-                                                    padding: '10px 12px',
-                                                    background: '#f8fafc',
-                                                    border: '1px solid #e2e8f0',
-                                                    borderRadius: '10px'
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span style={{ fontWeight: 700, color: '#1f2937' }}>{u.name}</span>
-                                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                                                        {u.age ? `${u.age}세` : '나이 미입력'}
+                            <div className="reading-calendar-toolbar">
+                                <button
+                                    type="button"
+                                    className="reading-calendar-nav"
+                                    onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                                    aria-label="이전 달"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+                                <div className="reading-calendar-month">{currentMonthLabel}</div>
+                                <button
+                                    type="button"
+                                    className="reading-calendar-nav"
+                                    onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                                    aria-label="다음 달"
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
+                            </div>
+
+                            <div className="reading-calendar-grid admin-calendar-grid">
+                                {WEEKDAY_LABELS.map((label) => (
+                                    <div key={label} className="reading-calendar-weekday">{label}</div>
+                                ))}
+
+                                {calendarDays.map(({ date, isCurrentMonth }) => {
+                                    const dateKey = formatDateKey(date);
+                                    const dayBooks = booksByDate[dateKey] || [];
+                                    const dayStudents = Array.from(new Set(dayBooks.map((book: any) => book.displayName))) as string[];
+                                    const isToday = dateKey === todayKey;
+
+                                    return (
+                                        <div
+                                            key={dateKey}
+                                            className={`reading-calendar-cell admin-calendar-cell${isCurrentMonth ? '' : ' muted'}${isToday ? ' today' : ''}${dayBooks.length ? ' has-book' : ''}${selectedCalendarDate === dateKey ? ' selected' : ''}`}
+                                            onClick={() => {
+                                                if (!dayBooks.length) return;
+                                                setSelectedCalendarDate((prev) => prev === dateKey ? null : dateKey);
+                                            }}
+                                        >
+                                            <div className="admin-calendar-cell-top">
+                                                <span className="reading-calendar-date">{date.getDate()}</span>
+                                                {dayBooks.length > 0 && (
+                                                    <span className="reading-calendar-badge">
+                                                        <BookOpen size={12} />
+                                                        <span>{dayBooks.length}</span>
                                                     </span>
+                                                )}
+                                            </div>
+
+                                            {dayStudents.length > 0 && (
+                                                <div className="admin-calendar-names">
+                                                    {dayStudents.slice(0, 2).map((name) => (
+                                                        <span key={name} className="admin-calendar-name-pill">{name}</span>
+                                                    ))}
+                                                    {dayStudents.length > 2 && (
+                                                        <span className="admin-calendar-more">+{dayStudents.length - 2}</span>
+                                                    )}
                                                 </div>
-                                                <button
-                                                    className="btn"
-                                                    style={{
-                                                        padding: '8px 12px',
-                                                        background: '#fee2e2',
-                                                        color: '#b91c1c',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px'
-                                                    }}
-                                                    onClick={() => handleDeleteStudent(u)}
-                                                    disabled={deletingUserId === u.id}
-                                                >
-                                                    <Trash2 size={14} />
-                                                    {deletingUserId === u.id ? '삭제 중...' : '삭제'}
-                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {selectedCalendarDate && selectedDateBooks.length > 0 && (
+                                <div className="reading-calendar-detail">
+                                    <div className="reading-calendar-detail-head">
+                                        <strong>{selectedCalendarDate}</strong>
+                                        <span>{selectedDateBooks.length}개의 독서록</span>
+                                    </div>
+                                    <div className="reading-calendar-detail-list">
+                                        {selectedDateBooks.map((book: any) => (
+                                            <div key={book.id} className="reading-calendar-detail-item">
+                                                <div className="reading-calendar-detail-icon">
+                                                    {book.cover_url ? (
+                                                        <img src={book.cover_url} alt={book.title} />
+                                                    ) : (
+                                                        <BookOpen size={18} />
+                                                    )}
+                                                </div>
+                                                <div className="reading-calendar-detail-content">
+                                                    <strong>{book.title}</strong>
+                                                    <span>{book.displayName} · {book.author || '작가 정보 없음'}</span>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
-                                )}
-                            </div>
-
-                            <p style={{ color: '#64748b', marginTop: 0, marginBottom: 0, fontSize: '0.9rem' }}>
-                                추가된 학생은 로그인 시 자신의 4자리 비밀번호를 최초 1회 설정합니다.
-                            </p>
+                                </div>
+                            )}
                         </div>
+                    </section>
+
+                    <section>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
+                            <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                                <Users size={22} /> 학생 관리
+                            </h2>
+                            <button
+                                type="button"
+                                className="btn"
+                                onClick={() => setIsStudentManagerOpen((prev) => !prev)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'white', border: '1px solid #dbe4ee' }}
+                            >
+                                {isStudentManagerOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                {isStudentManagerOpen ? '학생 관리 숨기기' : '학생 관리 열기'}
+                            </button>
+                        </div>
+
+                        {isStudentManagerOpen && (
+                            <div className="glass-card" style={{ padding: '20px', display: 'grid', gap: '20px' }}>
+                                <div>
+                                    <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>개별 추가</h3>
+                                    <form onSubmit={handleAddStudent} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                                        <input
+                                            className="input-field"
+                                            placeholder="학생 이름"
+                                            value={newStudentName}
+                                            onChange={(e) => setNewStudentName(e.target.value)}
+                                        />
+                                        <input
+                                            className="input-field"
+                                            placeholder="나이(선택)"
+                                            type="number"
+                                            min={1}
+                                            max={120}
+                                            value={newStudentAge}
+                                            onChange={(e) => setNewStudentAge(e.target.value)}
+                                        />
+                                        <button className="btn btn-primary" type="submit" disabled={addingStudent}>
+                                            {addingStudent ? '추가 중...' : '학생 추가'}
+                                        </button>
+                                    </form>
+                                    {studentError && <p style={{ color: '#dc2626', marginTop: '10px', fontSize: '0.9rem' }}>{studentError}</p>}
+                                </div>
+
+                                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                                    <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>엑셀 붙여넣기 일괄 추가</h3>
+                                    <form onSubmit={handleBulkAddStudents} style={{ display: 'grid', gap: '10px' }}>
+                                        <textarea
+                                            className="input-field"
+                                            rows={6}
+                                            placeholder={'예시 1) 이름만 한 줄씩\n홍길동\n김영희\n\n예시 2) 이름 + 나이(엑셀 2열 복사)\n홍길동\t10\n김영희\t11'}
+                                            value={bulkStudentInput}
+                                            onChange={(e) => setBulkStudentInput(e.target.value)}
+                                            style={{ resize: 'vertical' }}
+                                        />
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                                            <input
+                                                className="input-field"
+                                                placeholder="일괄 나이(선택, 입력 시 모두 적용)"
+                                                type="number"
+                                                min={1}
+                                                max={120}
+                                                value={bulkDefaultAge}
+                                                onChange={(e) => setBulkDefaultAge(e.target.value)}
+                                            />
+                                            <button className="btn btn-primary" type="submit" disabled={addingBulkStudents}>
+                                                {addingBulkStudents ? '일괄 추가 중...' : '일괄 추가'}
+                                            </button>
+                                        </div>
+                                    </form>
+                                    {bulkError && <p style={{ color: '#dc2626', marginTop: '10px', fontSize: '0.9rem' }}>{bulkError}</p>}
+                                    {bulkSuccess && <p style={{ color: '#15803d', marginTop: '10px', fontSize: '0.9rem' }}>{bulkSuccess}</p>}
+                                </div>
+
+                                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                                    <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>학생 삭제</h3>
+                                    {users.length === 0 ? (
+                                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>등록된 학생이 없습니다.</p>
+                                    ) : (
+                                        <div style={{ display: 'grid', gap: '8px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
+                                            {users.map((u) => (
+                                                <div
+                                                    key={u.id}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        gap: '10px',
+                                                        padding: '10px 12px',
+                                                        background: '#f8fafc',
+                                                        border: '1px solid #e2e8f0',
+                                                        borderRadius: '10px'
+                                                    }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontWeight: 700, color: '#1f2937' }}>{u.name}</span>
+                                                        <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                                                            {u.age ? `${u.age}세` : '나이 미입력'}
+                                                        </span>
+                                                    </div>
+                                                    <button
+                                                        className="btn"
+                                                        style={{
+                                                            padding: '8px 12px',
+                                                            background: '#fee2e2',
+                                                            color: '#b91c1c',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px'
+                                                        }}
+                                                        onClick={() => handleDeleteStudent(u)}
+                                                        disabled={deletingUserId === u.id}
+                                                    >
+                                                        <Trash2 size={14} />
+                                                        {deletingUserId === u.id ? '삭제 중...' : '삭제'}
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <p style={{ color: '#64748b', marginTop: 0, marginBottom: 0, fontSize: '0.9rem' }}>
+                                    추가된 학생은 로그인 시 자신의 4자리 비밀번호를 최초 1회 설정합니다.
+                                </p>
+                            </div>
+                        )}
                     </section>
 
                     <section>

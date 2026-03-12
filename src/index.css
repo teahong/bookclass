@@ -622,6 +622,57 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.admin-calendar-card {
+  max-width: none;
+}
+
+.admin-calendar-grid {
+  gap: 7px;
+}
+
+.admin-calendar-cell {
+  min-height: 72px;
+}
+
+.admin-calendar-cell-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.admin-calendar-names {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.admin-calendar-name-pill,
+.admin-calendar-more {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-calendar-name-pill {
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--primary-ink);
+}
+
+.admin-calendar-more {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+}
+
 .dashboard-section-head {
   display: flex;
   align-items: center;
@@ -1560,6 +1611,16 @@ select.input-field {
 
   .reading-calendar-detail-list {
     grid-template-columns: 1fr;
+  }
+
+  .admin-calendar-cell {
+    min-height: 64px;
+  }
+
+  .admin-calendar-name-pill,
+  .admin-calendar-more {
+    font-size: 0.64rem;
+    padding: 2px 6px;
   }
 
   .recommended-header {
