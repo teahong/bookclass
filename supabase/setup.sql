@@ -30,8 +30,13 @@ create table if not exists public.books (
   user_id text not null,
   keywords text[],
   book_letter text,
+  teacher_comment text,
+  teacher_commented_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.books add column if not exists teacher_comment text;
+alter table public.books add column if not exists teacher_commented_at timestamptz;
 
 create table if not exists public.ai_analysis (
   id uuid primary key default gen_random_uuid(),

@@ -605,6 +605,12 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
                                 <p style={{ fontSize: '0.9rem', fontStyle: 'italic', color: '#444', marginBottom: '10px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                                     "{book.review_content}"
                                 </p>
+                                {book.teacher_comment && (
+                                    <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '10px', background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: '0.88rem', lineHeight: 1.5 }}>
+                                        <strong style={{ display: 'block', marginBottom: '4px' }}>선생님 코멘트</strong>
+                                        <span style={{ whiteSpace: 'pre-wrap' }}>{book.teacher_comment}</span>
+                                    </div>
+                                )}
                                 {book.recommend_to && (
                                     <div style={{ fontSize: '0.8rem', background: '#e1f5fe', padding: '4px 8px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center' }}>
                                         <UserPlus size={12} style={{ marginRight: '5px' }} /> {book.recommend_to}님께 추천
@@ -684,6 +690,15 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onLogout, onSho
                                             {selectedBook.review_content}
                                         </p>
                                     </div>
+
+                                    {selectedBook.teacher_comment && (
+                                        <div style={{ background: '#fff7ed', padding: '20px', borderRadius: '15px', marginBottom: '20px', borderLeft: '5px solid #f97316', color: '#9a3412' }}>
+                                            <h4 style={{ marginTop: 0, marginBottom: '10px', color: '#c2410c' }}>선생님 코멘트</h4>
+                                            <p style={{ whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.7 }}>
+                                                {selectedBook.teacher_comment}
+                                            </p>
+                                        </div>
+                                    )}
 
                                     {selectedBook.recommend_to && (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#e3f2fd', padding: '15px', borderRadius: '12px', color: '#1565c0' }}>

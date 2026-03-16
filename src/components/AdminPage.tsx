@@ -57,6 +57,8 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     const [books, setBooks] = useState<any[]>([]);          // 전체 도서 데이터
     const [users, setUsers] = useState<any[]>([]);          // 학생 유저 목록
     const [loading, setLoading] = useState(true);           // 초기 로딩 상태
+    const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+    const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
 
     // AI 분석 관련 상태
     const [selectedUser, setSelectedUser] = useState<string>(''); // 분석 대상 유저 이름
@@ -99,7 +101,15 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         setLoading(true);
         // 전체 도서 목록 조회
         const { data: booksData } = await supabase.from('books').select('*');
-        if (booksData) setBooks(booksData);
+        if (booksData) {
+            setBooks(booksData);
+            setCommentDrafts(
+                booksData.reduce((acc, book) => {
+                    acc[book.id] = book.teacher_comment || '';
+                    return acc;
+                }, {} as Record<string, string>)
+            );
+        }
 
         // 연령 정보를 포함한 유저 목록 조회
         const { data: usersData } = await supabase.from('users').select('id, name, age');
@@ -182,6 +192,36 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     const monthlyStudents = new Set(monthlyBooks.map((book) => userNameById[book.user_id] || book.user_id).filter(Boolean)).size;
     const todayKey = formatDateKey(new Date());
     const selectedDateBooks = selectedCalendarDate ? (booksByDate[selectedCalendarDate] || []) : [];
+
+    const handleTeacherCommentSave = async (bookId: string) => {
+        const teacherComment = (commentDrafts[bookId] || '').trim();
+        setSavingCommentId(bookId);
+
+        const { error } = await supabase
+            .from('books')
+            .update({
+                teacher_comment: teacherComment || null,
+                teacher_commented_at: teacherComment ? new Date().toISOString() : null
+            })
+            .eq('id', bookId);
+
+        if (error) {
+            alert('교사 코멘트 저장 중 오류가 발생했습니다.');
+            setSavingCommentId(null);
+            return;
+        }
+
+        setBooks((prevBooks) => prevBooks.map((book) => (
+            book.id === bookId
+                ? {
+                    ...book,
+                    teacher_comment: teacherComment || null,
+                    teacher_commented_at: teacherComment ? new Date().toISOString() : null
+                }
+                : book
+        )));
+        setSavingCommentId(null);
+    };
 
     /**
      * 관리자 페이지에서 유저의 연령 정보를 직접 수정합니다.
@@ -570,7 +610,11 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                     </div>
                                     <div className="reading-calendar-detail-list">
                                         {selectedDateBooks.map((book: any) => (
-                                            <div key={book.id} className="reading-calendar-detail-item">
+                                            <div
+                                                key={book.id}
+                                                className="reading-calendar-detail-item"
+                                                style={{ alignItems: 'flex-start' }}
+                                            >
                                                 <div className="reading-calendar-detail-icon">
                                                     {book.cover_url ? (
                                                         <img src={book.cover_url} alt={book.title} />
@@ -578,9 +622,40 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                                         <BookOpen size={18} />
                                                     )}
                                                 </div>
-                                                <div className="reading-calendar-detail-content">
-                                                    <strong>{book.title}</strong>
-                                                    <span>{book.displayName} · {book.author || '작가 정보 없음'}</span>
+                                                <div className="reading-calendar-detail-content" style={{ gap: '10px' }}>
+                                                    <div>
+                                                        <strong>{book.title}</strong>
+                                                        <span>{book.displayName} · {book.author || '작가 정보 없음'}</span>
+                                                    </div>
+                                                    <p style={{ margin: 0, color: '#475569', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                                                        {book.review_content || '작성된 감상문이 없습니다.'}
+                                                    </p>
+                                                    <div style={{ display: 'grid', gap: '8px' }}>
+                                                        <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>
+                                                            교사 코멘트
+                                                        </label>
+                                                        <textarea
+                                                            className="input-field"
+                                                            rows={4}
+                                                            placeholder="학생 글에 남길 피드백을 입력하세요."
+                                                            value={commentDrafts[book.id] || ''}
+                                                            onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [book.id]: e.target.value }))}
+                                                            style={{ resize: 'vertical', background: 'white' }}
+                                                        />
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                                                저장하면 학생 화면에서도 바로 보입니다.
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-primary"
+                                                                onClick={() => handleTeacherCommentSave(book.id)}
+                                                                disabled={savingCommentId === book.id}
+                                                            >
+                                                                {savingCommentId === book.id ? '저장 중...' : '코멘트 저장'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
