@@ -12,7 +12,14 @@ import { searchAladinBooks, type AladinBook } from './aladin';
 
 // Gemini API 초기화 (환경 변수 사용)
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || "gemini-3.5-flash";
 const genAI = new GoogleGenerativeAI(API_KEY);
+
+interface GeminiRecommendation {
+    title: string;
+    author: string;
+    reason: string;
+}
 
 /**
  * 사용자가 작성한 독서 기록에서 핵심 키워드 5개를 추출합니다.
@@ -22,7 +29,7 @@ export const extractKeywords = async (text: string): Promise<string[]> => {
     if (!text || text.length < 10) return [];
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         const prompt = `
       다음 독서 기록을 분석하여 핵심적인 주제, 감정, 또는 소재를 나타내는 키워드를 정확히 5개 추출해줘.
@@ -61,7 +68,7 @@ export async function analyzeReadingPatterns(userName: string, reviews: string[]
     try {
         // 응답 형식을 JSON으로 고정하기 위해 configuration 설정
         const model = genAI.getGenerativeModel({
-            model: "gemini-3-pro-preview",
+            model: GEMINI_MODEL,
             generationConfig: {
                 responseMimeType: "application/json",
             }
@@ -118,7 +125,7 @@ export async function analyzeReadingPatterns(userName: string, reviews: string[]
         }
 
         // --- 2단계: 실시간 도서 데이터 수집 (RAG 기반 데이터 확보) ---
-        let allCandidates: AladinBook[] = [];
+        const allCandidates: AladinBook[] = [];
         const keywords = learnerProfile.search_keywords || ["권장도서"];
 
         // 여러 키워드로 동시에 알라딘에서 검색 수행
@@ -184,15 +191,15 @@ export async function analyzeReadingPatterns(userName: string, reviews: string[]
         const finalText = cleanJson(finalResponse.text());
 
         try {
-            const finalResult = JSON.parse(finalText);
+            const finalResult = JSON.parse(finalText) as { recommendations?: GeminiRecommendation[] };
 
             // Gemini가 고른 책들에 실제 메타데이터(표지, 링크 등)를 다시 입힙니다.
-            const enrichedRecommendations = (finalResult.recommendations || []).map((rec: any) => {
-                const original = contextBooks.find(b => b.title === rec.title) || contextBooks.find(b => b.title.includes(rec.title)) || {};
+            const enrichedRecommendations = (finalResult.recommendations || []).map((rec) => {
+                const original = contextBooks.find(b => b.title === rec.title) || contextBooks.find(b => b.title.includes(rec.title));
                 return {
                     ...rec,
-                    cover_url: (original as AladinBook).cover,
-                    link: (original as AladinBook).link
+                    cover_url: original?.cover,
+                    link: original?.link
                 };
             });
 
@@ -275,7 +282,7 @@ export async function generateBookLetter(userName: string, bookTitle: string, re
     if (!reviewContent) return null;
 
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         const prompt = `
 # Role
