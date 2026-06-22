@@ -4,10 +4,10 @@ import axios from 'axios';
  * 알라딘 도서 검색 API 연동 모듈
  * 
  * VITE_ALADIN_API_KEY: .env 파일에 설정된 알라딘 TTB 키
- * PROXY_BASE_URL: CORS 문제를 피하기 위해 설정된 프록시 경로 (vite.config.ts 및 vercel.json에 설정됨)
+ * PROXY_BASE_URL: CORS 문제를 피하기 위해 설정된 프록시 경로
  */
 const ALADIN_API_KEY = import.meta.env.VITE_ALADIN_API_KEY;
-const PROXY_BASE_URL = '/api/aladin/ttb/api/ItemSearch.aspx';
+const PROXY_BASE_URL = '/api/aladin';
 
 // 알라딘 API로부터 받는 도서 정보 인터페이스
 export interface AladinBook {
@@ -23,26 +23,38 @@ export interface AladinBook {
     link: string;            // 알라딘 상세 페이지 링크
 }
 
+interface AladinApiItem {
+    title: string;
+    author: string;
+    pubDate: string;
+    description?: string;
+    isbn?: string;
+    isbn13?: string;
+    cover: string;
+    categoryName: string;
+    customerReviewRank: number;
+    priceStandard: number;
+    link: string;
+}
+
+interface AladinSearchResponse {
+    item?: AladinApiItem[];
+}
+
 /**
  * 알라딘 API를 사용하여 도서를 검색합니다.
  * @param query 검색어 (제목, 저자, 키워드 등)
  * @param maxResults 가져올 최대 결과 수 (기본값: 20)
  */
 export const searchAladinBooks = async (query: string, maxResults: number = 20): Promise<AladinBook[]> => {
-    // API 키가 없으면 검색을 진행하지 않습니다.
-    if (!ALADIN_API_KEY) {
-        console.error("알라딘 API 키가 설정되지 않았습니다. .env 파일을 확인해주세요.");
-        return [];
-    }
-
     try {
         /**
          * axios를 사용하여 알라딘 API (프록시를 통해) 호출
          * 알라딘 API는 기본적으로 XML을 반환하지만, 'output=js' 파라미터를 통해 JSON 형식을 받을 수 있습니다.
          */
-        const response = await axios.get(PROXY_BASE_URL, {
+        const response = await axios.get<AladinSearchResponse>(PROXY_BASE_URL, {
             params: {
-                ttbkey: ALADIN_API_KEY,      // 인증용 키
+                ...(ALADIN_API_KEY ? { ttbkey: ALADIN_API_KEY } : {}),
                 Query: query,                // 검색어
                 QueryType: 'Keyword',        // 검색 유형 (키워드)
                 MaxResults: maxResults,      // 최대 결과 수
@@ -55,12 +67,12 @@ export const searchAladinBooks = async (query: string, maxResults: number = 20):
 
         // 응답 데이터에서 'item' 배열이 있는지 확인하고 데이터를 가공합니다.
         if (response.data && response.data.item) {
-            return response.data.item.map((item: any) => ({
+            return response.data.item.map((item) => ({
                 title: item.title,
                 author: item.author,
                 pubDate: item.pubDate,
                 description: item.description || "",
-                isbn: item.isbn13 || item.isbn, // ISBN 13자리가 있으면 사용하고, 없으면 일반 ISBN 사용
+                isbn: item.isbn13 || item.isbn || "", // ISBN 13자리가 있으면 사용하고, 없으면 일반 ISBN 사용
                 cover: item.cover,
                 categoryName: item.categoryName,
                 customerReviewRank: item.customerReviewRank,

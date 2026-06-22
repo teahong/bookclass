@@ -8,9 +8,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/aladin': {
-        target: 'http://www.aladin.co.kr',
+        target: 'https://www.aladin.co.kr',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/aladin/, ''),
+        rewrite: () => '/ttb/api/ItemSearch.aspx',
       },
     },
   },
