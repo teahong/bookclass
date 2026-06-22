@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { ArrowLeft, BookOpen, Lock, Activity, Sparkles, TrendingUp, BarChart2, ExternalLink, Share2, Trash2, CalendarDays, ChevronLeft, ChevronRight, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, BookOpen, Lock, Activity, Sparkles, TrendingUp, BarChart2, ExternalLink, Share2, Trash2, CalendarDays, ChevronLeft, ChevronRight, Users, ChevronDown, ChevronUp, Pencil, Save, X } from 'lucide-react';
 import { analyzeReadingPatterns } from '../lib/gemini';
 
 interface AdminPageProps {
@@ -8,6 +8,36 @@ interface AdminPageProps {
 }
 
 const WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+interface AnalysisRecommendation {
+    title?: string;
+    author?: string;
+    reason?: string;
+    cover_url?: string;
+    link?: string;
+    rank?: number;
+    [key: string]: unknown;
+}
+
+interface AnalysisReport {
+    level?: string;
+    interest?: string;
+    recommendations?: AnalysisRecommendation[];
+    error?: string;
+}
+
+const createAnalysisDraft = (analysis: AnalysisReport | null): AnalysisReport => ({
+    level: analysis?.level || '',
+    interest: analysis?.interest || '',
+    recommendations: Array.isArray(analysis?.recommendations)
+        ? analysis.recommendations.map((book) => ({
+            ...book,
+            title: book.title || '',
+            author: book.author || '',
+            reason: book.reason || ''
+        }))
+        : []
+});
 
 const formatDateKey = (date: Date) => {
     const year = date.getFullYear();
@@ -63,6 +93,9 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     // AI 분석 관련 상태
     const [selectedUser, setSelectedUser] = useState<string>(''); // 분석 대상 유저 이름
     const [analysisResult, setAnalysisResult] = useState<any>(null); // 분석 결과 데이터
+    const [analysisDraft, setAnalysisDraft] = useState<AnalysisReport | null>(null);
+    const [isEditingAnalysis, setIsEditingAnalysis] = useState(false);
+    const [isSavingAnalysis, setIsSavingAnalysis] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);        // AI 분석 중 로딩 상태
     const [statsType, setStatsType] = useState<'count' | 'length'>('count'); // 통계 기준 (권수 vs 글자수)
     const [newStudentName, setNewStudentName] = useState('');
@@ -90,6 +123,8 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     // 선택된 유저가 바뀔 때마다 기존에 저장된 AI 분석 결과가 있는지 가져옴
     useEffect(() => {
         if (selectedUser && users.length > 0) {
+            setIsEditingAnalysis(false);
+            setAnalysisDraft(null);
             fetchAIAnalysis();
         }
     }, [selectedUser, users]);
@@ -137,17 +172,21 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         if (error) {
             console.error('AI 분석 결과 조회 실패:', error);
             setAnalysisResult(null);
+            setAnalysisDraft(null);
             return;
         }
 
         if (data) {
-            setAnalysisResult({
+            const report = {
                 level: data.level,
                 interest: data.interest,
                 recommendations: data.recommendations
-            });
+            };
+            setAnalysisResult(report);
+            setAnalysisDraft(createAnalysisDraft(report));
         } else {
             setAnalysisResult(null); // 기록이 없으면 null 설정
+            setAnalysisDraft(null);
         }
     };
 
@@ -470,6 +509,8 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
 
         if (result && !(result as any).error) {
             setAnalysisResult(result);
+            setAnalysisDraft(createAnalysisDraft(result));
+            setIsEditingAnalysis(false);
 
             // 분석 결과를 DB에 저장(upsert)하여 나중에 바로 보여줄 수 있게 함
             await supabase
@@ -487,6 +528,84 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         setIsAnalyzing(false);
     };
 
+    const handleStartAnalysisEdit = () => {
+        setAnalysisDraft(createAnalysisDraft(analysisResult));
+        setIsEditingAnalysis(true);
+    };
+
+    const handleCancelAnalysisEdit = () => {
+        setAnalysisDraft(createAnalysisDraft(analysisResult));
+        setIsEditingAnalysis(false);
+    };
+
+    const updateAnalysisDraft = (field: 'level' | 'interest', value: string) => {
+        setAnalysisDraft((prev) => ({
+            ...createAnalysisDraft(prev),
+            [field]: value
+        }));
+    };
+
+    const updateRecommendationDraft = (index: number, field: 'title' | 'author' | 'reason', value: string) => {
+        setAnalysisDraft((prev) => {
+            const draft = createAnalysisDraft(prev);
+            const recommendations = [...(draft.recommendations || [])];
+            recommendations[index] = {
+                ...recommendations[index],
+                [field]: value
+            };
+            return { ...draft, recommendations };
+        });
+    };
+
+    const removeRecommendationDraft = (index: number) => {
+        setAnalysisDraft((prev) => {
+            const draft = createAnalysisDraft(prev);
+            return {
+                ...draft,
+                recommendations: (draft.recommendations || []).filter((_, itemIndex) => itemIndex !== index)
+            };
+        });
+    };
+
+    const handleSaveAnalysisEdit = async () => {
+        if (!selectedUser || !analysisDraft) return;
+        const targetUser = users.find(u => u.name === selectedUser);
+        if (!targetUser) return;
+
+        const nextReport = {
+            level: (analysisDraft.level || '').trim(),
+            interest: (analysisDraft.interest || '').trim(),
+            recommendations: (analysisDraft.recommendations || []).map((book) => ({
+                ...book,
+                title: String(book.title || '').trim(),
+                author: String(book.author || '').trim(),
+                reason: String(book.reason || '').trim()
+            }))
+        };
+
+        setIsSavingAnalysis(true);
+        const { error } = await supabase
+            .from('ai_analysis')
+            .upsert({
+                user_id: targetUser.id,
+                level: nextReport.level,
+                interest: nextReport.interest,
+                recommendations: nextReport.recommendations,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+
+        if (error) {
+            alert('AI 추천 리포트 저장 중 오류가 발생했습니다.');
+            setIsSavingAnalysis(false);
+            return;
+        }
+
+        setAnalysisResult(nextReport);
+        setAnalysisDraft(createAnalysisDraft(nextReport));
+        setIsEditingAnalysis(false);
+        setIsSavingAnalysis(false);
+    };
+
     /**
      * 공유 페이지로 이동
      */
@@ -498,6 +617,8 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         const shareUrl = `${window.location.origin}${window.location.pathname}?mode=report&user=${encodeURIComponent(selectedUser)}`;
         window.open(shareUrl, '_blank');
     };
+
+    const displayedAnalysis = isEditingAnalysis && analysisDraft ? analysisDraft : analysisResult;
 
     return (
         <div className="dashboard-container" style={{ animation: 'fadeIn 0.5s' }}>
@@ -868,7 +989,21 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                 <Sparkles color="#8b5cf6" /> AI 심층 독서 분석 리포트
                             </div>
                             {analysisResult && !(analysisResult as any).error && (
-                                <div className="no-print" style={{ display: 'flex', gap: '8px' }}>
+                                <div className="no-print" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {isEditingAnalysis ? (
+                                        <>
+                                            <button onClick={handleSaveAnalysisEdit} className="btn-icon" title="수정 내용 저장" disabled={isSavingAnalysis} style={{ background: '#16a34a', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: isSavingAnalysis ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem', color: 'white', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', opacity: isSavingAnalysis ? 0.7 : 1 }}>
+                                                <Save size={16} /> <span>{isSavingAnalysis ? '저장 중...' : '저장'}</span>
+                                            </button>
+                                            <button onClick={handleCancelAnalysisEdit} className="btn-icon" title="수정 취소" disabled={isSavingAnalysis} style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '8px 16px', borderRadius: '8px', cursor: isSavingAnalysis ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem', color: '#334155', fontWeight: 'bold' }}>
+                                                <X size={16} /> <span>취소</span>
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button onClick={handleStartAnalysisEdit} className="btn-icon" title="AI 리포트 수정" style={{ background: '#0f172a', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem', color: 'white', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                                            <Pencil size={16} /> <span>수정</span>
+                                        </button>
+                                    )}
                                     <button onClick={handleOpenSharePage} className="btn-icon" title="공유 페이지 열기" style={{ background: 'var(--primary)', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem', color: 'white', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                                         <Share2 size={16} /> <span>공유 / 인쇄</span>
                                     </button>
@@ -925,14 +1060,30 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: '#0369a1', fontWeight: '700' }}>
                                                     <Activity size={20} /> 읽기/쓰기 수준 진단
                                                 </h4>
-                                                <p style={{ margin: 0, lineHeight: '1.7', color: '#0c4a6e' }}>{analysisResult.level}</p>
+                                                {isEditingAnalysis ? (
+                                                    <textarea
+                                                        value={analysisDraft?.level || ''}
+                                                        onChange={(e) => updateAnalysisDraft('level', e.target.value)}
+                                                        style={{ width: '100%', minHeight: '120px', resize: 'vertical', border: '1px solid #bae6fd', borderRadius: '10px', padding: '12px', lineHeight: '1.7', color: '#0c4a6e', font: 'inherit', background: 'white' }}
+                                                    />
+                                                ) : (
+                                                    <p style={{ margin: 0, lineHeight: '1.7', color: '#0c4a6e' }}>{displayedAnalysis.level}</p>
+                                                )}
                                             </div>
 
                                             <div style={{ background: '#fdf4ff', padding: '20px', borderRadius: '15px', borderLeft: '5px solid #d946ef' }}>
                                                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: '#a21caf', fontWeight: '700' }}>
                                                     <TrendingUp size={20} /> 관심 분야 및 독서 성향
                                                 </h4>
-                                                <p style={{ margin: 0, lineHeight: '1.7', color: '#701a75' }}>{analysisResult.interest}</p>
+                                                {isEditingAnalysis ? (
+                                                    <textarea
+                                                        value={analysisDraft?.interest || ''}
+                                                        onChange={(e) => updateAnalysisDraft('interest', e.target.value)}
+                                                        style={{ width: '100%', minHeight: '120px', resize: 'vertical', border: '1px solid #f5d0fe', borderRadius: '10px', padding: '12px', lineHeight: '1.7', color: '#701a75', font: 'inherit', background: 'white' }}
+                                                    />
+                                                ) : (
+                                                    <p style={{ margin: 0, lineHeight: '1.7', color: '#701a75' }}>{displayedAnalysis.interest}</p>
+                                                )}
                                             </div>
 
                                             <div style={{ background: '#f0fdf4', padding: '20px', borderRadius: '15px', borderLeft: '5px solid #22c55e' }}>
@@ -940,7 +1091,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                                     <BookOpen size={20} /> 실시간 추천 도서 (TOP 10)
                                                 </h4>
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: '20px' }}>
-                                                    {Array.isArray(analysisResult.recommendations) && analysisResult.recommendations.map((book: any, idx: number) => (
+                                                    {Array.isArray(displayedAnalysis.recommendations) && displayedAnalysis.recommendations.map((book: any, idx: number) => (
                                                         <div key={idx} className="glass-card" style={{ display: 'flex', gap: '15px', border: '1px solid #dcfce7', padding: '15px', transition: 'transform 0.2s' }}>
                                                             {book.cover_url && (
                                                                 <div style={{ flexShrink: 0, width: '85px', height: '120px', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
@@ -948,11 +1099,40 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                                                 </div>
                                                             )}
                                                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                                                                <div style={{ fontWeight: '700', fontSize: '1rem', color: '#166534', marginBottom: '4px', lineHeight: '1.3' }}>{book.title}</div>
-                                                                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '8px' }}>{book.author} ({book.rank}점)</div>
-                                                                <p style={{ fontSize: '0.9rem', color: '#374151', margin: '0 0 10px 0', lineHeight: '1.5', flex: 1 }}>{book.reason}</p>
+                                                                {isEditingAnalysis ? (
+                                                                    <div style={{ display: 'grid', gap: '8px' }}>
+                                                                        <input
+                                                                            value={String(book.title || '')}
+                                                                            onChange={(e) => updateRecommendationDraft(idx, 'title', e.target.value)}
+                                                                            style={{ border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 10px', fontWeight: 700, color: '#166534', font: 'inherit' }}
+                                                                        />
+                                                                        <input
+                                                                            value={String(book.author || '')}
+                                                                            onChange={(e) => updateRecommendationDraft(idx, 'author', e.target.value)}
+                                                                            style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 10px', color: '#475569', font: 'inherit', fontSize: '0.9rem' }}
+                                                                        />
+                                                                        <textarea
+                                                                            value={String(book.reason || '')}
+                                                                            onChange={(e) => updateRecommendationDraft(idx, 'reason', e.target.value)}
+                                                                            style={{ minHeight: '110px', resize: 'vertical', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px', color: '#374151', font: 'inherit', lineHeight: 1.5 }}
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => removeRecommendationDraft(idx)}
+                                                                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid #fecaca', background: '#fff1f2', color: '#be123c', borderRadius: '8px', padding: '8px 10px', fontWeight: 700, cursor: 'pointer', justifySelf: 'start' }}
+                                                                        >
+                                                                            <Trash2 size={14} /> 추천 도서 제거
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <>
+                                                                        <div style={{ fontWeight: '700', fontSize: '1rem', color: '#166534', marginBottom: '4px', lineHeight: '1.3' }}>{book.title}</div>
+                                                                        <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '8px' }}>{book.author} ({book.rank}점)</div>
+                                                                        <p style={{ fontSize: '0.9rem', color: '#374151', margin: '0 0 10px 0', lineHeight: '1.5', flex: 1 }}>{book.reason}</p>
+                                                                    </>
+                                                                )}
 
-                                                                {book.link && (
+                                                                {book.link && !isEditingAnalysis && (
                                                                     <a
                                                                         href={book.link}
                                                                         target="_blank"
