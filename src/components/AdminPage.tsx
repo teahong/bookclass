@@ -107,6 +107,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
     const [addingBulkStudents, setAddingBulkStudents] = useState(false);
     const [bulkError, setBulkError] = useState('');
     const [bulkSuccess, setBulkSuccess] = useState('');
+    const [resettingPinUserId, setResettingPinUserId] = useState<string | null>(null);
     const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
     const [calendarMonth, setCalendarMonth] = useState(() => {
         const today = new Date();
@@ -147,7 +148,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         }
 
         // 연령 정보를 포함한 유저 목록 조회
-        const { data: usersData } = await supabase.from('users').select('id, name, age');
+        const { data: usersData } = await supabase.from('users').select('id, name, age, pin');
         if (usersData) {
             setUsers(usersData);
             // 첫 번째 유저를 기본 선택값으로 설정
@@ -423,6 +424,34 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
         setBulkStudentInput('');
         setAddingBulkStudents(false);
         fetchData();
+    };
+
+    /**
+     * 학생의 PIN을 초기화합니다.
+     * 초기화된 학생은 다음 로그인 시 새 4자리 비밀번호를 등록합니다.
+     */
+    const handleResetStudentPin = async (user: any) => {
+        const confirmed = window.confirm(
+            `${user.name} 학생의 비밀번호를 초기화하시겠습니까?\n다음 로그인 시 새 4자리 비밀번호를 다시 설정하게 됩니다.`
+        );
+        if (!confirmed) return;
+
+        setResettingPinUserId(user.id);
+
+        const { error } = await supabase
+            .from('users')
+            .update({ pin: null })
+            .eq('id', user.id);
+
+        if (error) {
+            setResettingPinUserId(null);
+            alert('비밀번호 초기화 중 오류가 발생했습니다.');
+            return;
+        }
+
+        setUsers(users.map(u => u.id === user.id ? { ...u, pin: null } : u));
+        setResettingPinUserId(null);
+        alert(`${user.name} 학생의 비밀번호가 초기화되었습니다.`);
     };
 
     /**
@@ -860,7 +889,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                 </div>
 
                                 <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                                    <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>학생 삭제</h3>
+                                    <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '1rem' }}>학생 계정 관리</h3>
                                     {users.length === 0 ? (
                                         <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>등록된 학생이 없습니다.</p>
                                     ) : (
@@ -879,28 +908,58 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                                         borderRadius: '10px'
                                                     }}
                                                 >
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                                         <span style={{ fontWeight: 700, color: '#1f2937' }}>{u.name}</span>
                                                         <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
                                                             {u.age ? `${u.age}세` : '나이 미입력'}
                                                         </span>
+                                                        <span
+                                                            style={{
+                                                                color: u.pin ? '#047857' : '#b45309',
+                                                                background: u.pin ? '#d1fae5' : '#fef3c7',
+                                                                borderRadius: '999px',
+                                                                padding: '3px 8px',
+                                                                fontSize: '0.78rem',
+                                                                fontWeight: 700
+                                                            }}
+                                                        >
+                                                            {u.pin ? '비밀번호 설정됨' : '비밀번호 미설정'}
+                                                        </span>
                                                     </div>
-                                                    <button
-                                                        className="btn"
-                                                        style={{
-                                                            padding: '8px 12px',
-                                                            background: '#fee2e2',
-                                                            color: '#b91c1c',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: '6px'
-                                                        }}
-                                                        onClick={() => handleDeleteStudent(u)}
-                                                        disabled={deletingUserId === u.id}
-                                                    >
-                                                        <Trash2 size={14} />
-                                                        {deletingUserId === u.id ? '삭제 중...' : '삭제'}
-                                                    </button>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                                        <button
+                                                            className="btn"
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                background: '#e0f2fe',
+                                                                color: '#0369a1',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px'
+                                                            }}
+                                                            onClick={() => handleResetStudentPin(u)}
+                                                            disabled={resettingPinUserId === u.id || !u.pin}
+                                                        >
+                                                            <Lock size={14} />
+                                                            {resettingPinUserId === u.id ? '초기화 중...' : '비밀번호 초기화'}
+                                                        </button>
+                                                        <button
+                                                            className="btn"
+                                                            style={{
+                                                                padding: '8px 12px',
+                                                                background: '#fee2e2',
+                                                                color: '#b91c1c',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px'
+                                                            }}
+                                                            onClick={() => handleDeleteStudent(u)}
+                                                            disabled={deletingUserId === u.id}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            {deletingUserId === u.id ? '삭제 중...' : '삭제'}
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -908,7 +967,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ onBack }) => {
                                 </div>
 
                                 <p style={{ color: '#64748b', marginTop: 0, marginBottom: 0, fontSize: '0.9rem' }}>
-                                    추가된 학생은 로그인 시 자신의 4자리 비밀번호를 최초 1회 설정합니다.
+                                    추가된 학생이나 비밀번호가 초기화된 학생은 로그인 시 자신의 4자리 비밀번호를 다시 설정합니다.
                                 </p>
                             </div>
                         )}
